@@ -3,7 +3,12 @@ import numpy as np
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-
+from sklearn.metrics import (
+    r2_score,
+    mean_squared_error,
+    mean_absolute_error
+)
+from tensorflow.keras.models import load_model
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Dense, Dropout
@@ -15,7 +20,7 @@ import matplotlib.pyplot as plt
 # LOAD DATASET
 # =====================================
 
-df = pd.read_csv("student_placement_synthetic.csv")
+df = pd.read_csv("dataset/student_placement_synthetic.csv")
 
 
 # =====================================
@@ -81,7 +86,7 @@ X_test = scaler.transform(X_test)
 inputs = Input(shape=(X_train.shape[1],))
 
 x = Dense(128, activation="relu")(inputs)
-x = Dropout(0.3)(x)
+x = Dropout(0.2)(x)
 
 x = Dense(64, activation="relu")(x)
 
@@ -118,7 +123,7 @@ model.compile(
 # =====================================
 # TRAIN MODEL
 # =====================================
-
+"""
 history = model.fit(
     X_train,
     y_train,
@@ -127,7 +132,8 @@ history = model.fit(
     batch_size=32,
     verbose=1
 )
-
+"""
+model = load_model("salary_model.keras")
 
 # =====================================
 # EVALUATE MODEL
@@ -175,3 +181,17 @@ print(f"R² Score: {r2:.4f}")
 model.save("salary_model.keras")
 
 print("\nModel saved as salary_model.keras")
+predictions = model.predict(X_test)
+
+mse = mean_squared_error(y_test, predictions)
+rmse = np.sqrt(mse)
+mae = mean_absolute_error(y_test, predictions)
+r2 = r2_score(y_test, predictions)
+
+print("\n========================")
+print("EVALUATION METRICS")
+print("========================")
+print(f"MSE  : {mse:.4f}")
+print(f"RMSE : {rmse:.4f}")
+print(f"MAE  : {mae:.4f} LPA")
+print(f"R²   : {r2:.4f}")

@@ -1,25 +1,28 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils.class_weight import compute_class_weight
-import tensorflow as tf
-from tensorflow.keras.layers import BatchNormalization
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense, Dropout
-from tensorflow.keras.models import load_model
-from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.metrics import roc_auc_score
-from tensorflow.keras.callbacks import EarlyStopping
-import matplotlib.pyplot as plt
+from sklearn.metrics import (
+    confusion_matrix,
+    classification_report,
+    ConfusionMatrixDisplay,
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    roc_curve
+)
+
+from xgboost import XGBClassifier
 
 
 # =====================================
 # LOAD DATASET
 # =====================================
 
-df = pd.read_csv("student_placement_synthetic.csv")
+df = pd.read_csv("dataset/student_placement_synthetic.csv")
 
 
 # =====================================
@@ -60,72 +63,33 @@ X_train, X_test, y_train, y_test = train_test_split(
     random_state=42,
     stratify=y
 )
-classes = np.unique(y_train)
-
-weights = compute_class_weight(
-    class_weight="balanced",
-    classes=classes,
-    y=y_train
-)
-
-class_weights = {
-    0: weights[0],
-    1: weights[1]
-}
-
-print(class_weights)
-
-# =====================================
-# FEATURE SCALING
-# =====================================
-
-scaler = StandardScaler()
-
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
 
 
 # =====================================
-# BUILD NEURAL NETWORK
+# HANDLE CLASS IMBALANCE
 # =====================================
 
-inputs = Input(shape=(X_train.shape[1],))
+neg, pos = np.bincount(y_train)
 
-x = Dense(128, activation="tanh")(inputs)
-x = BatchNormalization()(x)
-x = Dropout(0.2)(x)
+scale_pos_weight = neg / pos
 
-x = Dense(64, activation="tanh")(x)
-x = BatchNormalization()(x)
-
-x = Dense(32, activation="tanh")(x)
-x = BatchNormalization()(x)
-
-placement_output = Dense(
-    1,
-    activation="sigmoid",
-    name="placement"
-)(x)
+print(f"scale_pos_weight = {scale_pos_weight:.4f}")
 
 
 # =====================================
-# CREATE MODEL
+# XGBOOST MODEL
 # =====================================
 
-model = Model(
-    inputs=inputs,
-    outputs=placement_output
-)
-
-
-# =====================================
-# COMPILE MODEL
-# =====================================
-
-model.compile(
-    optimizer="adam",
-    loss="binary_crossentropy",
-    metrics=["accuracy"]
+model = XGBClassifier(
+    n_estimators=300,
+    max_depth=4,
+    learning_rate=0.05,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    scale_pos_weight=scale_pos_weight,
+    eval_metric="logloss",
+    random_state=42,
+    n_jobs=-1
 )
 
 
@@ -133,103 +97,114 @@ model.compile(
 # TRAIN MODEL
 # =====================================
 
-early_stop = EarlyStopping(
-    monitor="val_loss",
-    patience=10,
-    restore_best_weights=True
-)
-history = model.fit(
-    X_train,
-    y_train,
-    validation_split=0.2,
-    epochs=200,
-    callbacks=[early_stop],
-    batch_size=32,
-    class_weight=class_weights,
-    verbose=1
-)
-#model = load_model("placement_model.keras")
-
-# =====================================
-# EVALUATE MODEL
-# =====================================
-
-loss, accuracy = model.evaluate(
-    X_test,
-    y_test,
-    verbose=0
-)
-
-print("\n========================")
-print("TEST RESULTS")
-print("========================")
-print(f"Loss: {loss:.4f}")
-print(f"Accuracy: {accuracy:.4f}")
+model.fit(X_train, y_train)
 
 
 # =====================================
-# SAMPLE PREDICTIONS
+# PREDICTIONS
 # =====================================
 
-predictions = model.predict(X_test)
+threshold = 0.43
 
-predictions_binary = (
-    predictions > 0.5
-).astype(int)
+probs = model.predict_proba(X_test)[:, 1]
 
-print("\n========================")
-print("SAMPLE PREDICTIONS")
-print("========================")
-
-for i in range(10):
-
-    print(
-        f"Actual: {y_test.iloc[i]} | "
-        f"Predicted: {predictions_binary[i][0]} | "
-        f"Probability: {predictions[i][0]:.4f}"
-    )
+preds = (probs > threshold).astype(int)
 
 
 # =====================================
-# SAVE MODEL
+# METRICS
 # =====================================
 
-model.save("placement_model.keras")
-
-print("\nModel saved as placement_model.keras")
-
-print(confusion_matrix(
-    y_test,
-    predictions_binary
-))
-
-print(classification_report(
-    y_test,
-    predictions_binary
-))
-
-probs = model.predict(X_test)
-
+accuracy = accuracy_score(y_test, preds)
+precision = precision_score(y_test, preds)
+recall = recall_score(y_test, preds)
+f1 = f1_score(y_test, preds)
 auc = roc_auc_score(y_test, probs)
 
-print("ROC-AUC:", auc)
+print("\n========================")
+print("XGBOOST RESULTS")
+print("========================")
+
+print(f"Accuracy : {accuracy:.4f}")
+print(f"Precision: {precision:.4f}")
+print(f"Recall   : {recall:.4f}")
+print(f"F1 Score : {f1:.4f}")
+print(f"ROC-AUC  : {auc:.4f}")
 
 
+# =====================================
+# CLASSIFICATION REPORT
+# =====================================
 
-# Training and validation loss
+print("\n========================")
+print("CLASSIFICATION REPORT")
+print("========================")
+
+print(classification_report(y_test, preds))
+
+
+# =====================================
+# CONFUSION MATRIX
+# =====================================
+
+cm = confusion_matrix(y_test, preds)
+
+print("\nConfusion Matrix:")
+print(cm)
+
+disp = ConfusionMatrixDisplay(
+    confusion_matrix=cm,
+    display_labels=["Not Placed", "Placed"]
+)
+
+disp.plot(cmap="Blues")
+plt.title("Confusion Matrix - XGBoost")
+plt.show()
+
+
+# =====================================
+# ROC CURVE
+# =====================================
+
+fpr, tpr, _ = roc_curve(y_test, probs)
+
+plt.figure(figsize=(8, 6))
 plt.plot(
-    history.history["loss"],
-    label="Training Loss"
+    fpr,
+    tpr,
+    label=f"XGBoost (AUC = {auc:.3f})"
 )
 
 plt.plot(
-    history.history["val_loss"],
-    label="Validation Loss"
+    [0, 1],
+    [0, 1],
+    "k--",
+    label="Random Guess"
 )
 
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.title("Model Loss Curve")
-
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve - XGBoost")
 plt.legend()
 plt.show()
+
+
+# =====================================
+# TOP 10 FEATURE IMPORTANCES
+# =====================================
+
+importances = pd.Series(
+    model.feature_importances_,
+    index=X.columns
+).sort_values(ascending=False)
+
+print("\n========================")
+print("TOP 10 FEATURES")
+print("========================")
+
+print(importances.head(10))
+
+# Save model
+model.save_model("placement_xgboost.json")
+
+print("Model saved successfully!")
