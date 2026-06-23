@@ -173,6 +173,12 @@ r2 = r2_score(y_test, predictions)
 
 print(f"R² Score: {r2:.4f}")
 
+import joblib
+
+joblib.dump(
+    scaler,
+    "salary_scaler.pkl"
+)
 
 # =====================================
 # SAVE MODEL
